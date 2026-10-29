@@ -41,6 +41,11 @@
     position: absolute; left: 0; width: 100%;
     top: -20%; height: 140%;
   }
+  /* 4K: the player is laid out at twice the size and scaled back down, so YouTube sees a 4K-sized
+     player and offers its 2160p stream (TV browsers usually report a 1920-wide screen even on 4K TVs). */
+  .render4k .yt, .render4k #video-wrap iframe {
+    width: 200%; height: 280%; transform: scale(.5); transform-origin: 0 0;
+  }
   /* Two players: one on screen, one loading the next video out of sight, so switching is instant. */
   .slot { position: absolute; inset: 0; opacity: 0; transition: opacity .9s ease; }
   .slot.show { opacity: 1; }
@@ -55,30 +60,12 @@
     background: var(--panel); color: var(--muted); padding: calc(1 * var(--u)) calc(2 * var(--u)); border-radius: calc(.8 * var(--u));
   }
 
-  /* Apple Music side: your saved picks above Apple's player. It slides off-screen when idle
-     rather than being removed, so the music keeps playing. */
-  #left {
-    position: fixed; left: calc(3 * var(--u)); bottom: calc(3 * var(--u)); width: min(660px, calc(44 * var(--u)));
-    display: flex; flex-direction: column; gap: calc(1 * var(--u));
-    transition: transform .5s ease, opacity .5s ease;
-  }
-  body.idle #left { transform: translateY(calc(100% + calc(4 * var(--u)))); opacity: 0; }
-  #picks { display: flex; gap: calc(.8 * var(--u)); overflow-x: auto; padding: calc(.4 * var(--u)); scrollbar-width: none; }
-  #picks::-webkit-scrollbar { display: none; }
-  [hidden] { display: none !important; }
-  #picks button { flex: none; font-size: calc(.85 * var(--u)); padding: calc(.45 * var(--u)) calc(.9 * var(--u)); border-radius: calc(.5 * var(--u)); border-width: calc(.15 * var(--u)); white-space: nowrap; }
-  #picks button.on { background: var(--accent); }
-  #music {
-    height: min(450px, calc(31 * var(--u))); border-radius: 12px; overflow: hidden;
-    box-shadow: 0 calc(1 * var(--u)) calc(3 * var(--u)) rgba(0,0,0,.6);
-  }
-  #music iframe { width: 100%; height: 100%; border: 0; display: block; }
-
   #buttons {
     position: fixed; right: calc(2.2 * var(--u)); bottom: calc(2.2 * var(--u)); display: flex; gap: calc(.6 * var(--u)); align-items: center;
     transition: opacity .5s;
   }
   body.idle #buttons { opacity: 0; }
+  [hidden] { display: none !important; }
   #video-count { color: var(--muted); font-size: calc(.8 * var(--u)); background: var(--panel); padding: calc(.45 * var(--u)) calc(.8 * var(--u)); border-radius: calc(.5 * var(--u)); }
   /* The small controls along the bottom right. */
   #buttons button { font-size: calc(.85 * var(--u)); padding: calc(.45 * var(--u)) calc(.9 * var(--u)); border-radius: calc(.5 * var(--u)); border-width: calc(.15 * var(--u)); }
@@ -116,34 +103,22 @@
   <div id="fade"></div>
   <div id="video-msg"></div>
 
-  <div id="left">
-    <div id="picks"></div>
-    <div id="music"></div>
-  </div>
-
   <div id="buttons">
     <span id="video-count"></span>
     <button id="btn-next">Next video</button>
-    <button id="btn-reset">Restart videos</button>
     <button id="btn-fullscreen" hidden>Full screen</button>
-    <button id="btn-pointer" hidden>Pointer (≡)</button>
-    <button id="btn-hide">Hide player</button>
     <button id="btn-settings">Settings</button>
   </div>
 
   <div id="settings">
     <div class="box">
       <h2>Settings</h2>
-      <label for="music-input">Apple Music playlists, albums or stations, one link per line (in the Music app: Share → Copy Link)</label>
-      <textarea id="music-input" placeholder="https://music.apple.com/…"></textarea>
-
-      <label for="videos-input">Background YouTube videos, one link per line (always muted)</label>
+      <label for="videos-input">YouTube videos, one link per line (always muted)</label>
       <textarea id="videos-input" placeholder="https://www.youtube.com/watch?v=…&#10;https://youtu.be/…"></textarea>
 
       <div class="row">
         <label for="minutes-input" style="margin:0">Minutes per video</label>
         <input id="minutes-input" type="number" min="0.5" step="0.5">
-        <button id="btn-order">Order: as listed</button>
       </div>
 
       <div class="err" id="settings-err"></div>
@@ -176,72 +151,9 @@
     getJSON(k) { try { return JSON.parse(this.get(k)); } catch { return null; } },
   };
 
-  // ---------- Apple Music (Apple's embeddable player) ----------
+  // ---------- YouTube video rotation (always muted) ----------
 
-  // Turns a music.apple.com share link into the matching embed.music.apple.com address.
-  function toEmbedUrl(link) {
-    if (!link) return null;
-    try {
-      const u = new URL(link.trim());
-      if (!/^(embed\.)?music\.apple\.com$/.test(u.hostname)) return null;
-      if (!/\/(playlist|album|station|song|artist)\//.test(u.pathname)) return null;
-      u.hostname = "embed.music.apple.com";
-      return u.toString();
-    } catch { return null; }
-  }
-
-  function parseMusicList(items) {
-    const urls = [].concat(items || []).flatMap((s) => String(s).split(/\s+/)).map(toEmbedUrl).filter(Boolean);
-    return [...new Set(urls)];
-  }
-
-  // A short button label from the link, e.g. ".../playlist/todays-hits/pl.123" → "Todays Hits".
-  function musicName(url, i) {
-    const parts = new URL(url).pathname.split("/").filter(Boolean); // [country, kind, name, id]
-    if (parts.length >= 4) return decodeURIComponent(parts[2]).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    return (parts[1] || "Music").replace(/^\w/, (c) => c.toUpperCase()) + " " + (i + 1);
-  }
-
-  const musicFromUrl = params.get("m") ? parseMusicList(params.get("m").split(",")) : [];
-  let musicLinks = musicFromUrl.length ? musicFromUrl : (store.getJSON("tvmix.musicLinks") || parseMusicList(CFG.musicLinks || CFG.defaultMusic));
-  let musicIndex = Math.max(0, Math.min(Number(store.get("tvmix.musicIndex")) || 0, musicLinks.length - 1));
-
-  function loadMusic(url) {
-    const iframe = document.createElement("iframe");
-    iframe.title = "Apple Music";
-    iframe.src = url;
-    // Apple's official embed permissions, minus top-level navigation so "View in App" can't replace TV Mix.
-    // Popups stay allowed because "Sign In" needs one.
-    iframe.allow = "autoplay *; encrypted-media *; fullscreen *; clipboard-write";
-    iframe.setAttribute("sandbox", "allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation");
-    $("music").replaceChildren(iframe);
-  }
-
-  function renderPicks() {
-    const wrap = $("picks");
-    wrap.replaceChildren();
-    wrap.hidden = musicLinks.length < 2;
-    musicLinks.forEach((url, i) => {
-      const b = document.createElement("button");
-      b.textContent = musicName(url, i);
-      b.className = i === musicIndex ? "on" : "";
-      b.onclick = () => selectMusic(i);
-      b.addEventListener("focus", () => b.scrollIntoView({ inline: "nearest", block: "nearest" }));
-      wrap.appendChild(b);
-    });
-  }
-
-  function selectMusic(i) {
-    musicIndex = i;
-    store.set("tvmix.musicIndex", String(i));
-    loadMusic(musicLinks[i]);
-    renderPicks();
-    $("picks").children[i]?.focus();
-  }
-
-  if (musicLinks.length) { loadMusic(musicLinks[musicIndex]); renderPicks(); }
-
-  // ---------- YouTube background rotation (always muted) ----------
+  if (CFG.render4k !== false) document.body.classList.add("render4k");
 
   function parseVideoId(input) {
     if (!input) return null;
@@ -258,8 +170,8 @@
 
   const fromUrl = params.get("v") ? parseVideoList(params.get("v").split(",")) : [];
   let videos = fromUrl.length ? fromUrl : (store.getJSON("tvmix.videos") || parseVideoList(CFG.videos || CFG.defaultVideo));
-  let minutesPerVideo = Number(store.get("tvmix.minutes")) || CFG.minutesPerVideo || 15;
-  let shuffle = store.get("tvmix.shuffle") !== null ? store.get("tvmix.shuffle") === "1" : !!CFG.shuffleVideos;
+  let minutesPerVideo = Number(store.get("tvmix.minutes")) || CFG.minutesPerVideo || 10;
+  const shuffle = !!CFG.shuffleVideos;
 
   const players = [null, null];  // two YouTube players: one on screen, one getting the next video ready out of sight
   let active = 0;                 // which of the two is on screen
@@ -313,7 +225,9 @@
   // Start the following video playing in the hidden player, ready to be faded in.
   // Streaming sticks (Fire TV, Android TV) struggle to play two videos at once, which drags the quality down.
   // There the next video only starts loading shortly before it's needed.
-  const lowPower = CFG.keepNextVideoReady === undefined ? /AFT|Android|; wv\)/.test(navigator.userAgent) : !CFG.keepNextVideoReady;
+  // For the best picture, only one video streams at a time: the next one loads shortly before it's due,
+  // so the one on screen gets all the bandwidth (config.js keepNextVideoReady: true switches this off).
+  const lowPower = !CFG.keepNextVideoReady;
   const LOW_POWER_LEAD_MS = 20000;
   let warmTimer = null;
 
@@ -454,6 +368,7 @@
         autoplay: 0, mute: 1, controls: 0, playsinline: 1, rel: 0,
         disablekb: 1, iv_load_policy: 3, fs: 0, origin: location.origin,
         cc_load_policy: 0,
+        vq: CFG.render4k !== false ? "hd2160" : "hd1080",  // a hint only; YouTube makes the final choice
       },
       events: {
         onReady: (e) => {
@@ -515,25 +430,6 @@
     startRotation();
   }
 
-  // Fresh start for the videos only: new YouTube players, every video back to 0:00, from the first one.
-  // The Apple Music player isn't touched, so the music keeps playing.
-  function resetVideos() {
-    clearTimeout(switchTimer);
-    for (const id in resumeAt) delete resumeAt[id];
-    store.set("tvmix.resumeAt", "{}");
-    currentId = null;
-    queuedId = null;
-    active = 0;
-    failedInARow = 0;
-    switching = false;
-    $("video-msg").style.display = "none";
-    $("fade").classList.remove("clear");
-    newRound();
-    players.forEach((p) => { try { p && p.destroy(); } catch {} });
-    players[0] = players[1] = null;
-    if (window.YT && YT.Player) window.onYouTubeIframeAPIReady();  // their onReady starts the first video
-  }
-
   newRound();
   const ytScript = document.createElement("script");
   ytScript.src = "https://www.youtube.com/iframe_api";
@@ -542,30 +438,20 @@
   // ---------- Settings ----------
 
   const settingsOpen = () => $("settings").classList.contains("open");
-  let draftShuffle = shuffle;
-  const renderOrder = () => ($("btn-order").textContent = "Order: " + (draftShuffle ? "shuffle" : "as listed"));
 
   function openSettings() {
-    $("music-input").value = musicLinks.map((u) => u.replace("embed.music.apple.com", "music.apple.com")).join("\n");
     $("videos-input").value = videos.map((id) => "https://youtu.be/" + id).join("\n");
     $("minutes-input").value = minutesPerVideo;
-    draftShuffle = shuffle; renderOrder();
     $("settings-err").textContent = "";
     $("settings").classList.add("open");
-    $("music-input").focus();
+    $("videos-input").focus();
   }
   function closeSettings() { $("settings").classList.remove("open"); $("btn-settings").focus(); wake(); }
 
   $("btn-settings").onclick = openSettings;
   $("btn-close").onclick = closeSettings;
-  $("btn-order").onclick = () => { draftShuffle = !draftShuffle; renderOrder(); };
   $("btn-save").onclick = () => {
     const err = (msg) => ($("settings-err").textContent = msg);
-    const musicLines = $("music-input").value.split("\n").map((s) => s.trim()).filter(Boolean);
-    const badMusic = musicLines.filter((l) => !toEmbedUrl(l));
-    if (badMusic.length) return err("This doesn't look like an Apple Music link (copy it from Share → Copy Link): " + badMusic[0]);
-    const newMusic = parseMusicList(musicLines);
-
     const lines = $("videos-input").value.split("\n").map((s) => s.trim()).filter(Boolean);
     const bad = lines.filter((l) => !parseVideoId(l));
     if (bad.length) return err("This doesn't look like a YouTube link: " + bad[0]);
@@ -575,36 +461,23 @@
     const newMinutes = Number($("minutes-input").value);
     if (!(newMinutes >= 0.5)) return err("Minutes per video must be at least 0.5.");
 
-    if (newMusic.join() !== musicLinks.join()) {
-      const current = musicLinks[musicIndex];
-      musicLinks = newMusic;
-      store.set("tvmix.musicLinks", JSON.stringify(musicLinks));
-      // Keep playing what's on if it's still in the list; otherwise switch to the first one.
-      const keep = musicLinks.indexOf(current);
-      if (keep >= 0) { musicIndex = keep; store.set("tvmix.musicIndex", String(keep)); renderPicks(); }
-      else if (musicLinks.length) selectMusic(0);
-      else { $("music").replaceChildren(); renderPicks(); }
-    }
-
-    const changed = newVideos.join() !== videos.join() || newMinutes !== minutesPerVideo || draftShuffle !== shuffle;
-    videos = newVideos; minutesPerVideo = newMinutes; shuffle = draftShuffle;
+    const changed = newVideos.join() !== videos.join() || newMinutes !== minutesPerVideo;
+    videos = newVideos; minutesPerVideo = newMinutes;
     store.set("tvmix.videos", JSON.stringify(videos));
     store.set("tvmix.minutes", String(minutesPerVideo));
-    store.set("tvmix.shuffle", shuffle ? "1" : "0");
     if (changed) restartRotation();
     closeSettings();
   };
 
-  // ---------- Showing and hiding the player ----------
+  // ---------- Showing and hiding the controls ----------
 
   let hideTimer = null;
-  let pointerOverPlayer = false;
 
   function wake() {
     document.body.classList.remove("idle");
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!settingsOpen() && !pointerOverPlayer) sleep();
+      if (!settingsOpen()) sleep();
     }, (CFG.hideControlsAfter || 10) * 1000);
   }
   function sleep() {
@@ -612,16 +485,12 @@
     document.body.classList.add("idle");
   }
 
-  // The player is a separate page, so we can't see clicks inside it; just don't hide it while the pointer is over it.
-  $("left").addEventListener("mouseenter", () => { pointerOverPlayer = true; wake(); });
-  $("left").addEventListener("mouseleave", () => { pointerOverPlayer = false; wake(); });
-  $("btn-hide").onclick = (e) => { e.stopPropagation(); sleep(); };
   $("btn-next").onclick = () => nextVideo();
-  $("btn-reset").onclick = () => resetVideos();
   // In a browser (e.g. the Samsung TV's Internet app): hide the browser's bars and fill the screen.
-  // Browsers only allow this after a click or key press, so the first press anywhere also asks for it.
+  // Browsers only allow this after a click or key press, so the first press anywhere asks for it.
   const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
-  const canFullscreen = !window.TVMixAndroid && !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+  // (Not inside the Fire TV app, which is already full screen.)
+  const canFullscreen = !/; wv\)|AFT/.test(navigator.userAgent) && !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
   function goFullscreen() {
     if (!canFullscreen || fsElement()) return;
     const el = document.documentElement;
@@ -632,22 +501,17 @@
     $("btn-fullscreen").onclick = goFullscreen;
     document.addEventListener("fullscreenchange", renderFullscreenButton);
     document.addEventListener("webkitfullscreenchange", renderFullscreenButton);
+    renderFullscreenButton();
     let asked = false;
     const firstPress = () => { if (!asked) { asked = true; goFullscreen(); } };
     document.addEventListener("keydown", firstPress, { capture: true });
     document.addEventListener("click", firstPress, { capture: true });
-    renderFullscreenButton();
   }
 
-  // In the Fire TV / Android TV app: a mouse-style pointer for Apple's Sign In and Play buttons.
-  if (window.TVMixAndroid) {
-    $("btn-pointer").hidden = false;
-    $("btn-pointer").onclick = () => window.TVMixAndroid.togglePointer();
-  }
   document.addEventListener("mousemove", wake);
   document.addEventListener("click", wake);
 
-  // TV remote keys (when the page isn't in pointer mode): any key wakes, Back hides.
+  // TV remote keys: any key wakes the controls, Back hides them.
   const KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, BACK: 10009, ESC: 27 };
   document.addEventListener("keydown", (e) => {
     if (e.keyCode === KEY.BACK || e.keyCode === KEY.ESC) {
@@ -657,7 +521,7 @@
     }
     const wasIdle = document.body.classList.contains("idle");
     wake();
-    const mainButtons = [...document.querySelectorAll("#picks button, #buttons button")].filter((b) => !b.hidden && b.offsetParent);
+    const mainButtons = [...document.querySelectorAll("#buttons button")].filter((b) => !b.hidden && b.offsetParent);
     if (wasIdle) {
       e.preventDefault();
       if (!mainButtons.includes(document.activeElement)) (mainButtons[0] || $("btn-settings")).focus();
@@ -677,7 +541,7 @@
       const atEnd = !el.value.slice(el.selectionEnd).includes("\n");
       if ((e.keyCode === KEY.UP && !atStart) || (e.keyCode === KEY.DOWN && !atEnd)) return;
     }
-    const fields = [$("music-input"), $("videos-input"), $("minutes-input"), $("btn-order"), $("btn-save"), $("btn-close")];
+    const fields = [$("videos-input"), $("minutes-input"), $("btn-save"), $("btn-close")];
     const i = fields.indexOf(el);
     fields[Math.max(0, Math.min(fields.length - 1, i + (e.keyCode === KEY.DOWN ? 1 : -1)))].focus();
     e.preventDefault();
@@ -706,7 +570,7 @@
   addEventListener("blur", () => setTimeout(() => {
     const el = document.activeElement;
     if (el && el.tagName === "IFRAME" && el.closest("#video-wrap")) {
-      const first = [...document.querySelectorAll("#picks button, #buttons button")].find((b) => !b.hidden && b.offsetParent);
+      const first = [...document.querySelectorAll("#buttons button")].find((b) => !b.hidden && b.offsetParent);
       (first || document.body).focus();
     }
   }, 0));
