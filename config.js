@@ -14,6 +14,10 @@ window.TVMIX_CONFIG = {
   // Set to false on a 1080p TV or a slow device.
   render4k: true,
 
+  // Reload the page every this many hours (between videos), to keep a browser that runs all day fresh.
+  // It carries straight on where it was. 0 = never.
+  refreshEveryHours: 6,
+
   // Seconds of no activity before the buttons fade away.
   hideControlsAfter: 10,
 };
