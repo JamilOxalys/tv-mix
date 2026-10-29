@@ -54,11 +54,6 @@
   /* Black layer that fades in and out between videos. */
   #fade { position: fixed; inset: 0; background: #000; opacity: 1; transition: opacity .8s; pointer-events: none; }
   #fade.clear { opacity: 0; }
-  #video-msg {
-    position: fixed; top: calc(3 * var(--u)); left: 50%; transform: translateX(-50%);
-    display: none; max-width: calc(70 * var(--u)); text-align: center;
-    background: var(--panel); color: var(--muted); padding: calc(1 * var(--u)) calc(2 * var(--u)); border-radius: calc(.8 * var(--u));
-  }
 
   #buttons {
     position: fixed; right: calc(2.2 * var(--u)); bottom: calc(2.2 * var(--u)); display: flex; gap: calc(.6 * var(--u)); align-items: center;
@@ -66,7 +61,6 @@
   }
   body.idle #buttons { opacity: 0; }
   [hidden] { display: none !important; }
-  #video-count { color: var(--muted); font-size: calc(.8 * var(--u)); background: var(--panel); padding: calc(.45 * var(--u)) calc(.8 * var(--u)); border-radius: calc(.5 * var(--u)); }
   /* The small controls along the bottom right. */
   #buttons button { font-size: calc(.85 * var(--u)); padding: calc(.45 * var(--u)) calc(.9 * var(--u)); border-radius: calc(.5 * var(--u)); border-width: calc(.15 * var(--u)); }
 
@@ -101,10 +95,8 @@
   <div id="video-wrap"></div>
   <div id="shield"></div>
   <div id="fade"></div>
-  <div id="video-msg"></div>
 
   <div id="buttons">
-    <span id="video-count"></span>
     <button id="btn-next">Next video</button>
     <button id="btn-fullscreen" hidden>Full screen</button>
     <button id="btn-settings">Settings</button>
@@ -261,7 +253,6 @@
   }
 
   function renderCount() {
-    $("video-count").textContent = videos.length > 1 ? `Video ${videos.indexOf(currentId) + 1} of ${videos.length}` : "";
     $("btn-next").hidden = videos.length < 2;
   }
 
@@ -281,10 +272,7 @@
     switching = true;
     const to = 1 - active;
     const waitedSince = performance.now();
-    if (players[to]._id !== queuedId) {
-      loadQueued();
-      showVideoMsg("Getting the next video ready…");
-    }
+    if (players[to]._id !== queuedId) loadQueued();
     (function whenReady() {
       if (isWarm(players[to])) return crossfadeTo(to, false);
       // If the hidden player never gets going (some TVs can only play one video at a time), switch the plain way.
@@ -294,7 +282,7 @@
   }
 
   function crossfadeTo(to, plain) {
-    $("video-msg").style.display = "none";
+
     rememberPosition();
     const from = active;
     active = to;
@@ -384,7 +372,7 @@
           if (e.data === YT.PlayerState.PLAYING) {
             hideCaptions(p);
             if (!p._warmSince) p._warmSince = performance.now();
-            if (p === players[active]) { failedInARow = 0; $("video-msg").style.display = "none"; }
+            if (p === players[active]) { failedInARow = 0; }
           }
           if (e.data === YT.PlayerState.BUFFERING) p._warmSince = 0;
           // A video shorter than the time slot just loops until it's time to move on.
@@ -403,7 +391,6 @@
             return showVideoMsg("None of the background videos could play. Their owners may block playing outside YouTube; try others in Settings.");
           }
           showVideoMsg((blocked ? "A video's owner doesn't allow it to play outside YouTube" : "A video couldn't load") + ", so skipping it.");
-          setTimeout(() => { $("video-msg").style.display = "none"; }, 5000);
           if (p === players[active]) startRotation();  // the one on screen failed: start again with the next video
           else queueNext();                             // the waiting one failed: line up a different video instead
         },
@@ -417,14 +404,12 @@
     makePlayer(1);
   };
 
-  function showVideoMsg(msg) {
-    $("video-msg").textContent = msg;
-    $("video-msg").style.display = "block";
-  }
+  // Problems are only logged, never shown over the video.
+  function showVideoMsg(msg) { console.warn("TV Mix:", msg); }
 
   // Restart the rotation after the list or timing changes.
   function restartRotation() {
-    $("video-msg").style.display = "none";
+
     failedInARow = 0;
     newRound();
     startRotation();
