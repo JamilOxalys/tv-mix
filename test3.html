@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Mix test 3</title>
+<style>
+  /* A "living scene": a still photo brought to life with slow camera drift, fog, flickering windows,
+     lightning and bats. Only transform and opacity animate, which TVs hand to their graphics chip,
+     so it stays smooth. There's no video player, so nothing competes with Apple Music. */
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, "Samsung One", Arial, sans-serif; color: #f5f5f7; }
+  .layer { position: fixed; inset: 0; pointer-events: none; }
+
+  /* Slow camera drift: zoom in and pan across, then back, over a minute. */
+  .photo {
+    position: fixed; inset: -6%; background: url("scenes/mansion-night.jpg") center 40% / cover no-repeat;
+    animation: drift 60s ease-in-out infinite alternate; will-change: transform;
+  }
+  @keyframes drift {
+    from { transform: scale(1) translate3d(-1.5%, 0, 0); }
+    to   { transform: scale(1.12) translate3d(1.5%, -1.5%, 0); }
+  }
+
+  /* Warm glow behind the windows, flickering like candlelight. */
+  .glow {
+    background:
+      radial-gradient(ellipse 9% 7% at 50% 40%, rgba(255,170,60,.55), transparent 70%),
+      radial-gradient(ellipse 6% 5% at 31% 47%, rgba(255,160,50,.45), transparent 70%),
+      radial-gradient(ellipse 6% 5% at 70% 47%, rgba(255,160,50,.45), transparent 70%),
+      radial-gradient(ellipse 5% 4% at 18% 52%, rgba(255,150,40,.35), transparent 70%),
+      radial-gradient(ellipse 5% 4% at 84% 52%, rgba(255,150,40,.35), transparent 70%);
+    mix-blend-mode: screen; animation: flicker 3.7s steps(1) infinite; will-change: opacity;
+  }
+  @keyframes flicker {
+    0% { opacity: .9 } 8% { opacity: .6 } 12% { opacity: 1 } 30% { opacity: .75 } 34% { opacity: .95 }
+    55% { opacity: .65 } 60% { opacity: 1 } 78% { opacity: .8 } 86% { opacity: .55 } 90% { opacity: .95 }
+  }
+
+  /* Two bands of fog rolling across the ground at different speeds. */
+  .fog {
+    position: fixed; left: 0; width: 200%; height: 45%; bottom: -8%;
+    background:
+      radial-gradient(ellipse 18% 40% at 10% 60%, rgba(200,205,220,.22), transparent 70%),
+      radial-gradient(ellipse 22% 45% at 32% 55%, rgba(200,205,220,.18), transparent 70%),
+      radial-gradient(ellipse 16% 35% at 52% 65%, rgba(200,205,220,.22), transparent 70%),
+      radial-gradient(ellipse 24% 45% at 74% 55%, rgba(200,205,220,.18), transparent 70%),
+      radial-gradient(ellipse 18% 40% at 94% 60%, rgba(200,205,220,.22), transparent 70%);
+    animation: roll 70s linear infinite; will-change: transform;
+  }
+  .fog.slow { bottom: 2%; height: 35%; opacity: .7; animation-duration: 110s; animation-direction: reverse; }
+  @keyframes roll { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-50%, 0, 0); } }
+
+  /* Lightning: a couple of quick flashes every 23 seconds. */
+  .flash { background: #dfe8ff; opacity: 0; mix-blend-mode: screen; animation: lightning 23s linear infinite; will-change: opacity; }
+  @keyframes lightning {
+    0%, 70% { opacity: 0 } 70.4% { opacity: .55 } 70.9% { opacity: .05 } 71.4% { opacity: .4 } 72.5%, 100% { opacity: 0 }
+  }
+
+  /* Bats flying across the sky now and then. */
+  .bat { position: fixed; top: 18%; left: -8%; width: 4vw; height: 2vw; animation: fly 19s linear infinite; will-change: transform; }
+  .bat svg { width: 100%; height: 100%; animation: flap .35s ease-in-out infinite alternate; transform-origin: 50% 50%; }
+  .bat.b2 { top: 10%; width: 2.6vw; height: 1.3vw; animation-duration: 27s; animation-delay: -9s; }
+  .bat.b3 { top: 26%; width: 3vw; height: 1.5vw; animation-duration: 23s; animation-delay: -15s; }
+  @keyframes fly {
+    0%   { transform: translate3d(0, 0, 0); }
+    25%  { transform: translate3d(30vw, -4vh, 0); }
+    50%  { transform: translate3d(58vw, 3vh, 0); }
+    75%  { transform: translate3d(86vw, -3vh, 0); }
+    100% { transform: translate3d(118vw, 2vh, 0); }
+  }
+  @keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(.35); } }
+
+  /* Darken the edges like a film frame. */
+  .vignette { background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.65) 100%); }
+
+  #music { position: fixed; left: 3vw; bottom: 3vw; width: 40vw; height: 26vw; border-radius: 12px; overflow: hidden; }
+  #music iframe { width: 100%; height: 100%; border: 0; }
+  #note { position: fixed; top: 2vw; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 1vw 2vw; border-radius: 1vw; font-size: 1.3vw; text-align: center; max-width: 70vw; }
+</style>
+</head>
+<body>
+  <div class="photo"></div>
+  <div class="layer glow"></div>
+  <div class="fog slow"></div>
+  <div class="fog"></div>
+  <div class="layer flash"></div>
+  <div class="bat"><svg viewBox="0 0 100 50"><path d="M50 22 C46 14 40 12 34 16 C30 6 18 4 0 10 C10 14 14 22 14 30 C22 24 30 26 34 32 C38 26 44 26 50 34 C56 26 62 26 66 32 C70 26 78 24 86 30 C86 22 90 14 100 10 C82 4 70 6 66 16 C60 12 54 14 50 22 Z" fill="#05040a"/></svg></div>
+  <div class="bat b2"><svg viewBox="0 0 100 50"><path d="M50 22 C46 14 40 12 34 16 C30 6 18 4 0 10 C10 14 14 22 14 30 C22 24 30 26 34 32 C38 26 44 26 50 34 C56 26 62 26 66 32 C70 26 78 24 86 30 C86 22 90 14 100 10 C82 4 70 6 66 16 C60 12 54 14 50 22 Z" fill="#05040a"/></svg></div>
+  <div class="bat b3"><svg viewBox="0 0 100 50"><path d="M50 22 C46 14 40 12 34 16 C30 6 18 4 0 10 C10 14 14 22 14 30 C22 24 30 26 34 32 C38 26 44 26 50 34 C56 26 62 26 66 32 C70 26 78 24 86 30 C86 22 90 14 100 10 C82 4 70 6 66 16 C60 12 54 14 50 22 Z" fill="#05040a"/></svg></div>
+  <div class="layer vignette"></div>
+
+  <div id="note">Test 3: a "living scene". Press <b>Play</b> in Apple's player. Is the movement smooth while the music plays?</div>
+  <div id="music">
+    <iframe src="https://embed.music.apple.com/gb/playlist/halloween-party-2026/pl.u-MDAWvVDt4JJEYY"
+      allow="autoplay *; encrypted-media *; fullscreen *; clipboard-write"
+      sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation"></iframe>
+  </div>
+</body>
+</html>
