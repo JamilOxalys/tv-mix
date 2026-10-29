@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>TV Mix</title>
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #000;
+    --panel: rgba(12, 12, 16, 0.8);
+    --text: #f5f5f7;
+    --muted: #a1a1aa;
+    --accent: #fa2d48;
+    --focus: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  :root { --u: 1vw; }  /* set exactly by sizeStage() */
+
+  /* Everything lives in a 16:9 frame, centred with black bars if the screen isn't 16:9.
+     The transform also makes the fixed-position layers below fill the frame, not the window. */
+  #stage {
+    position: fixed; left: 50%; top: 50%;
+    width: min(100vw, 177.78vh); height: min(56.25vw, 100vh);
+    transform: translate(-50%, -50%);
+    overflow: hidden; background: #000;
+  }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Samsung One", "Helvetica Neue", Arial, sans-serif;
+    font-size: calc(1.4 * var(--u));
+  }
+
+  /* Background video. The player is made taller than the frame so YouTube's title bar,
+     logo and pop-ups land outside it and get cut off; the picture fills the frame exactly.
+     No pointer events reach it, so moving the mouse never shows YouTube's controls. */
+  #video-wrap { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
+  .yt, #video-wrap iframe {
+    position: absolute; left: 0; width: 100%;
+    top: -20%; height: 140%;
+  }
+  /* Two players: one on screen, one loading the next video out of sight, so switching is instant. */
+  .slot { position: absolute; inset: 0; opacity: 0; transition: opacity .9s ease; }
+  .slot.show { opacity: 1; }
+  /* Invisible layer over the video so hovering or clicking can never bring up YouTube's own controls. */
+  #shield { position: fixed; inset: 0; }
+  /* Black layer that fades in and out between videos. */
+  #fade { position: fixed; inset: 0; background: #000; opacity: 1; transition: opacity .8s; pointer-events: none; }
+  #fade.clear { opacity: 0; }
+  #video-msg {
+    position: fixed; top: calc(3 * var(--u)); left: 50%; transform: translateX(-50%);
+    display: none; max-width: calc(70 * var(--u)); text-align: center;
+    background: var(--panel); color: var(--muted); padding: calc(1 * var(--u)) calc(2 * var(--u)); border-radius: calc(.8 * var(--u));
+  }
+
+  /* Apple Music side: your saved picks above Apple's player. It slides off-screen when idle
+     rather than being removed, so the music keeps playing. */
+  #left {
+    position: fixed; left: calc(3 * var(--u)); bottom: calc(3 * var(--u)); width: min(660px, calc(44 * var(--u)));
+    display: flex; flex-direction: column; gap: calc(1 * var(--u));
+    transition: transform .5s ease, opacity .5s ease;
+  }
+  body.idle #left { transform: translateY(calc(100% + calc(4 * var(--u)))); opacity: 0; }
+  #picks { display: flex; gap: calc(.8 * var(--u)); overflow-x: auto; padding: calc(.4 * var(--u)); scrollbar-width: none; }
+  #picks::-webkit-scrollbar { display: none; }
+  [hidden] { display: none !important; }
+  #picks button { flex: none; font-size: calc(.85 * var(--u)); padding: calc(.45 * var(--u)) calc(.9 * var(--u)); border-radius: calc(.5 * var(--u)); border-width: calc(.15 * var(--u)); white-space: nowrap; }
+  #picks button.on { background: var(--accent); }
+  #music {
+    height: min(450px, calc(31 * var(--u))); border-radius: 12px; overflow: hidden;
+    box-shadow: 0 calc(1 * var(--u)) calc(3 * var(--u)) rgba(0,0,0,.6);
+  }
+  #music iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  #buttons {
+    position: fixed; right: calc(2.2 * var(--u)); bottom: calc(2.2 * var(--u)); display: flex; gap: calc(.6 * var(--u)); align-items: center;
+    transition: opacity .5s;
+  }
+  body.idle #buttons { opacity: 0; }
+  #video-count { color: var(--muted); font-size: calc(.8 * var(--u)); background: var(--panel); padding: calc(.45 * var(--u)) calc(.8 * var(--u)); border-radius: calc(.5 * var(--u)); }
+  /* The small controls along the bottom right. */
+  #buttons button { font-size: calc(.85 * var(--u)); padding: calc(.45 * var(--u)) calc(.9 * var(--u)); border-radius: calc(.5 * var(--u)); border-width: calc(.15 * var(--u)); }
+
+  button, input, textarea {
+    font: inherit; color: var(--text);
+    background: var(--panel); border: calc(.2 * var(--u)) solid transparent;
+    border-radius: calc(.8 * var(--u)); padding: calc(.8 * var(--u)) calc(1.4 * var(--u)); outline: none;
+  }
+  button { cursor: pointer; }
+  button:focus, button:hover, input:focus, textarea:focus {
+    border-color: var(--focus); box-shadow: 0 0 calc(1.2 * var(--u)) rgba(255,255,255,.35);
+  }
+  button.primary { background: var(--accent); }
+
+  #settings {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.75);
+  }
+  #settings.open { display: flex; }
+  #settings .box { background: #18181b; padding: calc(2.5 * var(--u)) calc(3 * var(--u)); border-radius: calc(1.2 * var(--u)); width: calc(70 * var(--u)); max-height: calc(52 * var(--u)); overflow-y: auto; display: flex; flex-direction: column; gap: calc(.8 * var(--u)); }
+  #settings h2 { margin: 0; font-size: calc(1.8 * var(--u)); }
+  #settings label { color: var(--muted); font-size: calc(1.1 * var(--u)); margin-top: calc(.6 * var(--u)); }
+  #settings input, #settings textarea { width: 100%; background: #27272a; }
+  #settings textarea { height: 9em; resize: vertical; line-height: 1.4; font-size: calc(1.1 * var(--u)); }
+  #settings input[type=number] { width: calc(10 * var(--u)); }
+  #settings .err { color: #f87171; font-size: calc(1.1 * var(--u)); min-height: calc(1.3 * var(--u)); }
+  .row { display: flex; gap: calc(1 * var(--u)); align-items: center; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="video-wrap"></div>
+  <div id="shield"></div>
+  <div id="fade"></div>
+  <div id="video-msg"></div>
+
+  <div id="left">
+    <div id="picks"></div>
+    <div id="music"></div>
+  </div>
+
+  <div id="buttons">
+    <span id="video-count"></span>
+    <button id="btn-next">Next video</button>
+    <button id="btn-reset">Restart videos</button>
+    <button id="btn-fullscreen" hidden>Full screen</button>
+    <button id="btn-pointer" hidden>Pointer (≡)</button>
+    <button id="btn-hide">Hide player</button>
+    <button id="btn-settings">Settings</button>
+  </div>
+
+  <div id="settings">
+    <div class="box">
+      <h2>Settings</h2>
+      <label for="music-input">Apple Music playlists, albums or stations, one link per line (in the Music app: Share → Copy Link)</label>
+      <textarea id="music-input" placeholder="https://music.apple.com/…"></textarea>
+
+      <label for="videos-input">Background YouTube videos, one link per line (always muted)</label>
+      <textarea id="videos-input" placeholder="https://www.youtube.com/watch?v=…&#10;https://youtu.be/…"></textarea>
+
+      <div class="row">
+        <label for="minutes-input" style="margin:0">Minutes per video</label>
+        <input id="minutes-input" type="number" min="0.5" step="0.5">
+        <button id="btn-order">Order: as listed</button>
+      </div>
+
+      <div class="err" id="settings-err"></div>
+      <div class="row">
+        <button id="btn-save" class="primary">Save</button>
+        <button id="btn-close">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="config.js"></script>
+<script>
+  const CFG = window.TVMIX_CONFIG || {};
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+
+  function sizeStage() {
+    const w = Math.min(innerWidth, innerHeight * 16 / 9);
+    document.documentElement.style.setProperty("--u", w / 100 + "px");
+  }
+  sizeStage();
+  addEventListener("resize", sizeStage);
+
+  // localStorage can throw in some TV browsers / private modes.
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    getJSON(k) { try { return JSON.parse(this.get(k)); } catch { return null; } },
+  };
+
+  // ---------- Apple Music (Apple's embeddable player) ----------
+
+  // Turns a music.apple.com share link into the matching embed.music.apple.com address.
+  function toEmbedUrl(link) {
+    if (!link) return null;
+    try {
+      const u = new URL(link.trim());
+      if (!/^(embed\.)?music\.apple\.com$/.test(u.hostname)) return null;
+      if (!/\/(playlist|album|station|song|artist)\//.test(u.pathname)) return null;
+      u.hostname = "embed.music.apple.com";
+      return u.toString();
+    } catch { return null; }
+  }
+
+  function parseMusicList(items) {
+    const urls = [].concat(items || []).flatMap((s) => String(s).split(/\s+/)).map(toEmbedUrl).filter(Boolean);
+    return [...new Set(urls)];
+  }
+
+  // A short button label from the link, e.g. ".../playlist/todays-hits/pl.123" → "Todays Hits".
+  function musicName(url, i) {
+    const parts = new URL(url).pathname.split("/").filter(Boolean); // [country, kind, name, id]
+    if (parts.length >= 4) return decodeURIComponent(parts[2]).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    return (parts[1] || "Music").replace(/^\w/, (c) => c.toUpperCase()) + " " + (i + 1);
+  }
+
+  const musicFromUrl = params.get("m") ? parseMusicList(params.get("m").split(",")) : [];
+  let musicLinks = musicFromUrl.length ? musicFromUrl : (store.getJSON("tvmix.musicLinks") || parseMusicList(CFG.musicLinks || CFG.defaultMusic));
+  let musicIndex = Math.max(0, Math.min(Number(store.get("tvmix.musicIndex")) || 0, musicLinks.length - 1));
+
+  function loadMusic(url) {
+    const iframe = document.createElement("iframe");
+    iframe.title = "Apple Music";
+    iframe.src = url;
+    // Apple's official embed permissions, minus top-level navigation so "View in App" can't replace TV Mix.
+    // Popups stay allowed because "Sign In" needs one.
+    iframe.allow = "autoplay *; encrypted-media *; fullscreen *; clipboard-write";
+    iframe.setAttribute("sandbox", "allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation");
+    $("music").replaceChildren(iframe);
+  }
+
+  function renderPicks() {
+    const wrap = $("picks");
+    wrap.replaceChildren();
+    wrap.hidden = musicLinks.length < 2;
+    musicLinks.forEach((url, i) => {
+      const b = document.createElement("button");
+      b.textContent = musicName(url, i);
+      b.className = i === musicIndex ? "on" : "";
+      b.onclick = () => selectMusic(i);
+      b.addEventListener("focus", () => b.scrollIntoView({ inline: "nearest", block: "nearest" }));
+      wrap.appendChild(b);
+    });
+  }
+
+  function selectMusic(i) {
+    musicIndex = i;
+    store.set("tvmix.musicIndex", String(i));
+    loadMusic(musicLinks[i]);
+    renderPicks();
+    $("picks").children[i]?.focus();
+  }
+
+  if (musicLinks.length) { loadMusic(musicLinks[musicIndex]); renderPicks(); }
+
+  // ---------- YouTube background rotation (always muted) ----------
+
+  function parseVideoId(input) {
+    if (!input) return null;
+    input = input.trim();
+    if (/^[\w-]{11}$/.test(input)) return input;
+    const m = input.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([\w-]{11})/);
+    return m ? m[1] : null;
+  }
+  // Pulls every video ID out of a list or block of text, dropping duplicates.
+  function parseVideoList(items) {
+    const ids = [].concat(items || []).flatMap((s) => String(s).split(/[\s,]+/)).map(parseVideoId).filter(Boolean);
+    return [...new Set(ids)];
+  }
+
+  const fromUrl = params.get("v") ? parseVideoList(params.get("v").split(",")) : [];
+  let videos = fromUrl.length ? fromUrl : (store.getJSON("tvmix.videos") || parseVideoList(CFG.videos || CFG.defaultVideo));
+  let minutesPerVideo = Number(store.get("tvmix.minutes")) || CFG.minutesPerVideo || 15;
+  let shuffle = store.get("tvmix.shuffle") !== null ? store.get("tvmix.shuffle") === "1" : !!CFG.shuffleVideos;
+
+  const players = [null, null];  // two YouTube players: one on screen, one getting the next video ready out of sight
+  let active = 0;                 // which of the two is on screen
+  let queuedId = null;            // the video waiting in the other player
+  let order = [];                 // the play order for this round (indexes into `videos`)
+  let pos = -1;                   // the last place taken from `order`
+  let currentId = null;           // the video on screen
+  let switchTimer = null;
+  let switching = false;
+  let failedInARow = 0;
+  // How far into each video we got, so each one carries on where it left off (kept even if the app is closed).
+  const resumeAt = store.getJSON("tvmix.resumeAt") || {};
+
+  // YouTube shows its own pause button for about 5 seconds whenever a video starts or jumps,
+  // so a video is only shown once it has been playing (out of sight) for longer than that.
+  const WARM_MS = 6000;
+  // While waiting, the next video replays this many seconds from its resume point, so it never drifts far.
+  const WAIT_LOOP_S = 40;
+
+  function silence(p) { try { p.mute(); p.setVolume(0); } catch {} }
+  // Captions can still appear if the viewer's YouTube settings turn them on, so switch them off on every video.
+  function hideCaptions(p) { try { p.unloadModule("captions"); p.unloadModule("cc"); } catch {} }
+  const isWarm = (p) => p && p._warmSince && performance.now() - p._warmSince >= WARM_MS && p.getPlayerState() === YT.PlayerState.PLAYING;
+
+  function newRound() {
+    order = videos.map((_, i) => i);
+    if (shuffle) {
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      // Don't play the same video twice in a row across rounds.
+      if (order.length > 1 && videos[order[0]] === currentId) order.push(order.shift());
+    }
+    pos = -1;
+  }
+  function takeNext() {
+    if (++pos >= order.length) { newRound(); pos = 0; }
+    return videos[order[pos]];
+  }
+
+  function load(slot, id) {
+    const p = players[slot];
+    p._id = id;
+    p._anchor = resumeAt[id] || 0;
+    p._warmSince = 0;
+    p.loadVideoById({ videoId: id, startSeconds: p._anchor });
+    silence(p);
+  }
+
+  // Start the following video playing in the hidden player, ready to be faded in.
+  // Streaming sticks (Fire TV, Android TV) struggle to play two videos at once, which drags the quality down.
+  // There the next video only starts loading shortly before it's needed.
+  const lowPower = CFG.keepNextVideoReady === undefined ? /AFT|Android|; wv\)/.test(navigator.userAgent) : !CFG.keepNextVideoReady;
+  const LOW_POWER_LEAD_MS = 20000;
+  let warmTimer = null;
+
+  function queueNext() {
+    queuedId = null;
+    if (videos.length < 2) return;
+    let id = takeNext();
+    if (id === currentId) id = takeNext();
+    queuedId = id;
+    if (!lowPower) load(1 - active, id);
+  }
+  function loadQueued() {
+    const p = players[1 - active];
+    if (queuedId && p && p._id !== queuedId) load(1 - active, queuedId);
+  }
+
+  // Keep the waiting video close to its resume point by looping it back now and then.
+  setInterval(() => {
+    const p = players[1 - active];
+    if (switching || !queuedId || !p || p._id !== queuedId || !p.getCurrentTime) return;
+    if (p.getCurrentTime() > p._anchor + WAIT_LOOP_S) { p._warmSince = 0; p.seekTo(p._anchor, true); }
+  }, 1000);
+
+  function scheduleSwitch() {
+    clearTimeout(switchTimer);
+    clearTimeout(warmTimer);
+    if (videos.length < 2) return;
+    const ms = minutesPerVideo * 60 * 1000;
+    switchTimer = setTimeout(nextVideo, ms);
+    if (lowPower) warmTimer = setTimeout(() => { if (!switching) loadQueued(); }, Math.max(0, ms - LOW_POWER_LEAD_MS));
+  }
+
+  function renderCount() {
+    $("video-count").textContent = videos.length > 1 ? `Video ${videos.indexOf(currentId) + 1} of ${videos.length}` : "";
+    $("btn-next").hidden = videos.length < 2;
+  }
+
+  // Fade the black cover away once the on-screen video is past YouTube's pause-button moment.
+  // (Gives up after 45 seconds so a very slow connection still ends up showing something.)
+  function revealWhenWarm(waitedSince = performance.now()) {
+    if (isWarm(players[active]) || performance.now() - waitedSince > 45000) return $("fade").classList.add("clear");
+    setTimeout(() => revealWhenWarm(waitedSince), 250);
+  }
+
+  // Swap to the waiting video with a crossfade. The current video keeps playing until the new one is ready.
+  function nextVideo() {
+    if (switching) return;
+    if (!videos.length) return showVideoMsg("No background videos set. Open Settings to add some.");
+    if (!queuedId) queueNext();
+    if (!queuedId) return;
+    switching = true;
+    const to = 1 - active;
+    const waitedSince = performance.now();
+    if (players[to]._id !== queuedId) {
+      loadQueued();
+      showVideoMsg("Getting the next video ready…");
+    }
+    (function whenReady() {
+      if (isWarm(players[to])) return crossfadeTo(to, false);
+      // If the hidden player never gets going (some TVs can only play one video at a time), switch the plain way.
+      if (performance.now() - waitedSince > 25000) return crossfadeTo(to, true);
+      setTimeout(whenReady, 250);
+    })();
+  }
+
+  function crossfadeTo(to, plain) {
+    $("video-msg").style.display = "none";
+    rememberPosition();
+    const from = active;
+    active = to;
+    currentId = queuedId;
+    queuedId = null;
+    renderCount();
+    scheduleSwitch();
+    if (plain) { $("fade").classList.remove("clear"); players[to].playVideo(); }
+    // Fade the new video in on top of the old one, so the picture never dims.
+    $("slot" + to).style.zIndex = 2;
+    $("slot" + from).style.zIndex = 1;
+    $("slot" + to).classList.add("show");
+    setTimeout(() => {
+      $("slot" + from).classList.remove("show");
+      try { players[from].pauseVideo(); } catch {}
+      switching = false;
+      if (plain) revealWhenWarm();
+      queueNext();  // the old player now gets the video after this one ready
+    }, 1000);
+  }
+
+  function rememberPosition() {
+    const p = players[active];
+    if (!p || !currentId || !p.getCurrentTime || p._id !== currentId) return;
+    const t = p.getCurrentTime(), d = p.getDuration();
+    // Start over next time if we were near the end (or it's a live stream).
+    resumeAt[currentId] = d && t < d - 30 ? t : 0;
+    store.set("tvmix.resumeAt", JSON.stringify(resumeAt));
+  }
+  // Save the spot regularly too, in case the TV is switched off mid-video.
+  setInterval(rememberPosition, 30 * 1000);
+
+  // Start (or restart) the rotation: first video on screen (behind the black cover until it's ready),
+  // the next one getting ready out of sight.
+  function startRotation() {
+    clearTimeout(switchTimer);
+    switching = false;
+    if (!players[0]?._loaded || !players[1]?._loaded) return;
+    if (!videos.length) return showVideoMsg("No background videos set. Open Settings to add some.");
+    try { players[1 - active].pauseVideo(); } catch {}
+    $("fade").classList.remove("clear");
+    currentId = takeNext();
+    load(active, currentId);
+    $("slot" + active).classList.add("show");
+    $("slot" + (1 - active)).classList.remove("show");
+    renderCount();
+    scheduleSwitch();
+    revealWhenWarm();
+    setTimeout(() => { if (!switching) queueNext(); }, 3000);  // let the first video get going before loading the next
+  }
+
+  function makePlayer(slot) {
+    const holder = document.createElement("div");
+    holder.className = "yt";
+    $("slot" + slot).replaceChildren(holder);
+    players[slot] = new YT.Player(holder, {
+      // The no-cookie host is more forgiving when the app runs from the TV's own storage.
+      host: "https://www.youtube-nocookie.com",
+      playerVars: {
+        autoplay: 0, mute: 1, controls: 0, playsinline: 1, rel: 0,
+        disablekb: 1, iv_load_policy: 3, fs: 0, origin: location.origin,
+        cc_load_policy: 0,
+      },
+      events: {
+        onReady: (e) => {
+          silence(e.target);
+          // Keep the remote's focus out of the YouTube player, or its own controls pop up on key presses.
+          try { e.target.getIframe().tabIndex = -1; } catch {}
+          e.target._loaded = true;
+          startRotation();
+        },
+        onStateChange: (e) => {
+          const p = e.target;
+          silence(p); // re-assert mute in case anything unmuted it
+          if (e.data === YT.PlayerState.PLAYING) {
+            hideCaptions(p);
+            if (!p._warmSince) p._warmSince = performance.now();
+            if (p === players[active]) { failedInARow = 0; $("video-msg").style.display = "none"; }
+          }
+          if (e.data === YT.PlayerState.BUFFERING) p._warmSince = 0;
+          // A video shorter than the time slot just loops until it's time to move on.
+          if (e.data === YT.PlayerState.ENDED) {
+            p._anchor = 0;
+            if (p === players[active]) resumeAt[p._id] = 0;
+            p._warmSince = 0;
+            p.seekTo(0); p.playVideo();
+          }
+        },
+        onError: (e) => {
+          const p = e.target;
+          const blocked = e.data === 101 || e.data === 150 || e.data === 153;
+          if (++failedInARow >= videos.length) {
+            clearTimeout(switchTimer);
+            return showVideoMsg("None of the background videos could play. Their owners may block playing outside YouTube; try others in Settings.");
+          }
+          showVideoMsg((blocked ? "A video's owner doesn't allow it to play outside YouTube" : "A video couldn't load") + ", so skipping it.");
+          setTimeout(() => { $("video-msg").style.display = "none"; }, 5000);
+          if (p === players[active]) startRotation();  // the one on screen failed: start again with the next video
+          else queueNext();                             // the waiting one failed: line up a different video instead
+        },
+      },
+    });
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    $("video-wrap").innerHTML = '<div class="slot" id="slot0"></div><div class="slot" id="slot1"></div>';
+    makePlayer(0);
+    makePlayer(1);
+  };
+
+  function showVideoMsg(msg) {
+    $("video-msg").textContent = msg;
+    $("video-msg").style.display = "block";
+  }
+
+  // Restart the rotation after the list or timing changes.
+  function restartRotation() {
+    $("video-msg").style.display = "none";
+    failedInARow = 0;
+    newRound();
+    startRotation();
+  }
+
+  // Fresh start for the videos only: new YouTube players, every video back to 0:00, from the first one.
+  // The Apple Music player isn't touched, so the music keeps playing.
+  function resetVideos() {
+    clearTimeout(switchTimer);
+    for (const id in resumeAt) delete resumeAt[id];
+    store.set("tvmix.resumeAt", "{}");
+    currentId = null;
+    queuedId = null;
+    active = 0;
+    failedInARow = 0;
+    switching = false;
+    $("video-msg").style.display = "none";
+    $("fade").classList.remove("clear");
+    newRound();
+    players.forEach((p) => { try { p && p.destroy(); } catch {} });
+    players[0] = players[1] = null;
+    if (window.YT && YT.Player) window.onYouTubeIframeAPIReady();  // their onReady starts the first video
+  }
+
+  newRound();
+  const ytScript = document.createElement("script");
+  ytScript.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(ytScript);
+
+  // ---------- Settings ----------
+
+  const settingsOpen = () => $("settings").classList.contains("open");
+  let draftShuffle = shuffle;
+  const renderOrder = () => ($("btn-order").textContent = "Order: " + (draftShuffle ? "shuffle" : "as listed"));
+
+  function openSettings() {
+    $("music-input").value = musicLinks.map((u) => u.replace("embed.music.apple.com", "music.apple.com")).join("\n");
+    $("videos-input").value = videos.map((id) => "https://youtu.be/" + id).join("\n");
+    $("minutes-input").value = minutesPerVideo;
+    draftShuffle = shuffle; renderOrder();
+    $("settings-err").textContent = "";
+    $("settings").classList.add("open");
+    $("music-input").focus();
+  }
+  function closeSettings() { $("settings").classList.remove("open"); $("btn-settings").focus(); wake(); }
+
+  $("btn-settings").onclick = openSettings;
+  $("btn-close").onclick = closeSettings;
+  $("btn-order").onclick = () => { draftShuffle = !draftShuffle; renderOrder(); };
+  $("btn-save").onclick = () => {
+    const err = (msg) => ($("settings-err").textContent = msg);
+    const musicLines = $("music-input").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const badMusic = musicLines.filter((l) => !toEmbedUrl(l));
+    if (badMusic.length) return err("This doesn't look like an Apple Music link (copy it from Share → Copy Link): " + badMusic[0]);
+    const newMusic = parseMusicList(musicLines);
+
+    const lines = $("videos-input").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const bad = lines.filter((l) => !parseVideoId(l));
+    if (bad.length) return err("This doesn't look like a YouTube link: " + bad[0]);
+    const newVideos = parseVideoList(lines);
+    if (!newVideos.length) return err("Add at least one YouTube link.");
+
+    const newMinutes = Number($("minutes-input").value);
+    if (!(newMinutes >= 0.5)) return err("Minutes per video must be at least 0.5.");
+
+    if (newMusic.join() !== musicLinks.join()) {
+      const current = musicLinks[musicIndex];
+      musicLinks = newMusic;
+      store.set("tvmix.musicLinks", JSON.stringify(musicLinks));
+      // Keep playing what's on if it's still in the list; otherwise switch to the first one.
+      const keep = musicLinks.indexOf(current);
+      if (keep >= 0) { musicIndex = keep; store.set("tvmix.musicIndex", String(keep)); renderPicks(); }
+      else if (musicLinks.length) selectMusic(0);
+      else { $("music").replaceChildren(); renderPicks(); }
+    }
+
+    const changed = newVideos.join() !== videos.join() || newMinutes !== minutesPerVideo || draftShuffle !== shuffle;
+    videos = newVideos; minutesPerVideo = newMinutes; shuffle = draftShuffle;
+    store.set("tvmix.videos", JSON.stringify(videos));
+    store.set("tvmix.minutes", String(minutesPerVideo));
+    store.set("tvmix.shuffle", shuffle ? "1" : "0");
+    if (changed) restartRotation();
+    closeSettings();
+  };
+
+  // ---------- Showing and hiding the player ----------
+
+  let hideTimer = null;
+  let pointerOverPlayer = false;
+
+  function wake() {
+    document.body.classList.remove("idle");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!settingsOpen() && !pointerOverPlayer) sleep();
+    }, (CFG.hideControlsAfter || 10) * 1000);
+  }
+  function sleep() {
+    clearTimeout(hideTimer);
+    document.body.classList.add("idle");
+  }
+
+  // The player is a separate page, so we can't see clicks inside it; just don't hide it while the pointer is over it.
+  $("left").addEventListener("mouseenter", () => { pointerOverPlayer = true; wake(); });
+  $("left").addEventListener("mouseleave", () => { pointerOverPlayer = false; wake(); });
+  $("btn-hide").onclick = (e) => { e.stopPropagation(); sleep(); };
+  $("btn-next").onclick = () => nextVideo();
+  $("btn-reset").onclick = () => resetVideos();
+  // In a browser (e.g. the Samsung TV's Internet app): hide the browser's bars and fill the screen.
+  // Browsers only allow this after a click or key press, so the first press anywhere also asks for it.
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const canFullscreen = !window.TVMixAndroid && !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+  function goFullscreen() {
+    if (!canFullscreen || fsElement()) return;
+    const el = document.documentElement;
+    try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el)?.catch?.(() => {}); } catch {}
+  }
+  function renderFullscreenButton() { $("btn-fullscreen").hidden = !canFullscreen || !!fsElement(); }
+  if (canFullscreen) {
+    $("btn-fullscreen").onclick = goFullscreen;
+    document.addEventListener("fullscreenchange", renderFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", renderFullscreenButton);
+    let asked = false;
+    const firstPress = () => { if (!asked) { asked = true; goFullscreen(); } };
+    document.addEventListener("keydown", firstPress, { capture: true });
+    document.addEventListener("click", firstPress, { capture: true });
+    renderFullscreenButton();
+  }
+
+  // In the Fire TV / Android TV app: a mouse-style pointer for Apple's Sign In and Play buttons.
+  if (window.TVMixAndroid) {
+    $("btn-pointer").hidden = false;
+    $("btn-pointer").onclick = () => window.TVMixAndroid.togglePointer();
+  }
+  document.addEventListener("mousemove", wake);
+  document.addEventListener("click", wake);
+
+  // TV remote keys (when the page isn't in pointer mode): any key wakes, Back hides.
+  const KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, BACK: 10009, ESC: 27 };
+  document.addEventListener("keydown", (e) => {
+    if (e.keyCode === KEY.BACK || e.keyCode === KEY.ESC) {
+      e.preventDefault();
+      if (settingsOpen()) closeSettings(); else sleep();
+      return;
+    }
+    const wasIdle = document.body.classList.contains("idle");
+    wake();
+    const mainButtons = [...document.querySelectorAll("#picks button, #buttons button")].filter((b) => !b.hidden && b.offsetParent);
+    if (wasIdle) {
+      e.preventDefault();
+      if (!mainButtons.includes(document.activeElement)) (mainButtons[0] || $("btn-settings")).focus();
+      return;
+    }
+    const dir = { [KEY.LEFT]: "left", [KEY.RIGHT]: "right", [KEY.UP]: "up", [KEY.DOWN]: "down" }[e.keyCode];
+    if (!settingsOpen()) {
+      if (dir) { moveFocus(mainButtons, dir); e.preventDefault(); }
+      return;
+    }
+    if (e.keyCode !== KEY.UP && e.keyCode !== KEY.DOWN) return;
+
+    // Up/down moves between the Settings fields. Inside the video list, only leave it from the first or last line.
+    const el = document.activeElement;
+    if (el.tagName === "TEXTAREA") {
+      const atStart = !el.value.slice(0, el.selectionStart).includes("\n");
+      const atEnd = !el.value.slice(el.selectionEnd).includes("\n");
+      if ((e.keyCode === KEY.UP && !atStart) || (e.keyCode === KEY.DOWN && !atEnd)) return;
+    }
+    const fields = [$("music-input"), $("videos-input"), $("minutes-input"), $("btn-order"), $("btn-save"), $("btn-close")];
+    const i = fields.indexOf(el);
+    fields[Math.max(0, Math.min(fields.length - 1, i + (e.keyCode === KEY.DOWN ? 1 : -1)))].focus();
+    e.preventDefault();
+  });
+
+  // Move focus to the nearest button in the pressed direction.
+  function moveFocus(els, dir) {
+    const cur = document.activeElement;
+    if (!els.includes(cur)) return els[0] && els[0].focus();
+    const a = cur.getBoundingClientRect();
+    const ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+    let best = null, bestScore = Infinity;
+    for (const el of els) {
+      if (el === cur) continue;
+      const b = el.getBoundingClientRect();
+      const dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
+      const horizontal = dir === "left" || dir === "right";
+      if (!{ left: dx < -1, right: dx > 1, up: dy < -1, down: dy > 1 }[dir]) continue;
+      const score = horizontal ? Math.abs(dx) + Math.abs(dy) * 3 : Math.abs(dy) + Math.abs(dx) * 3;
+      if (score < bestScore) { bestScore = score; best = el; }
+    }
+    if (best) best.focus();
+  }
+
+  // If focus still slips into the YouTube player (some TV browsers do this), take it straight back.
+  addEventListener("blur", () => setTimeout(() => {
+    const el = document.activeElement;
+    if (el && el.tagName === "IFRAME" && el.closest("#video-wrap")) {
+      const first = [...document.querySelectorAll("#picks button, #buttons button")].find((b) => !b.hidden && b.offsetParent);
+      (first || document.body).focus();
+    }
+  }, 0));
+
+  wake();
+</script>
+</body>
+</html>
