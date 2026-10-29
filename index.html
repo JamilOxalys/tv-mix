@@ -413,6 +413,17 @@
   // Save the spot regularly too, in case the TV is switched off mid-video.
   setInterval(rememberPosition, 30 * 1000);
 
+  // Browsers sometimes hold back or pause a video (e.g. while the page is in the background).
+  // Whenever the page is showing, make sure the on-screen video is actually playing.
+  function keepPlaying() {
+    const p = players[active];
+    if (document.visibilityState !== "visible" || !p || !p.getPlayerState || !currentId) return;
+    const st = p.getPlayerState();
+    if (st === YT.PlayerState.PAUSED || st === YT.PlayerState.CUED || st === YT.PlayerState.UNSTARTED) p.playVideo();
+  }
+  setInterval(keepPlaying, 3000);
+  document.addEventListener("visibilitychange", keepPlaying);
+
   // Start (or restart) the rotation: first video on screen (behind the black cover until it's ready),
   // the next one getting ready out of sight.
   function startRotation() {
