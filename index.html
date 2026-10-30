@@ -136,19 +136,6 @@
   sizeStage();
   addEventListener("resize", sizeStage);
 
-  // Temporary: in the Samsung app, show the screen size the TV reports for a minute (to fix the app's sizing).
-  if (/[?&]app=1/.test(location.search)) addEventListener("DOMContentLoaded", () => {
-    const d = document.createElement("div");
-    d.style.cssText = "position:fixed;left:0;top:0;width:100vw;height:100vh;border:12px solid red;box-sizing:border-box;z-index:99;pointer-events:none;color:#fff;font:bold 40px Arial;padding:40px;text-shadow:0 0 6px #000";
-    document.body.appendChild(d);
-    const show = () => (d.textContent =
-      "window " + innerWidth + "×" + innerHeight + "  ·  page " + document.documentElement.clientWidth + "×" + document.documentElement.clientHeight +
-      "  ·  screen " + screen.width + "×" + screen.height + "  ·  pixel ratio " + devicePixelRatio +
-      (window.visualViewport ? "  ·  visible " + Math.round(visualViewport.width) + "×" + Math.round(visualViewport.height) + " zoom " + visualViewport.scale : ""));
-    show(); const t = setInterval(show, 1000);
-    setTimeout(() => { clearInterval(t); d.remove(); }, 60000);
-  });
-
   // localStorage can throw in some TV browsers / private modes.
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
