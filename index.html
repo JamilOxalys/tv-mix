@@ -7,7 +7,6 @@
 <title>TV Mix</title>
 <link rel="icon" href="icon.png">
 <!-- Start connecting to YouTube straight away, so the first video and thumbnails arrive sooner. -->
-<link rel="preconnect" href="https://www.youtube-nocookie.com">
 <link rel="preconnect" href="https://www.youtube.com">
 <link rel="preconnect" href="https://i.ytimg.com">
 <style>
@@ -118,6 +117,7 @@
       <div class="row">
         <button id="btn-save" class="primary">Save</button>
         <button id="btn-close">Cancel</button>
+        <button id="btn-signin">Sign in to YouTube</button>
       </div>
     </div>
   </div>
@@ -323,8 +323,8 @@
 
   window.onYouTubeIframeAPIReady = function () {
     player = new YT.Player("yt", {
-      // YouTube's privacy-friendly player: no YouTube cookies are stored on the TV.
-      host: "https://www.youtube-nocookie.com",
+      // The normal YouTube player, so a YouTube sign-in on this TV counts (Premium: no ads).
+      host: "https://www.youtube.com",
       playerVars: {
         autoplay: 0, mute: 1, controls: 0, playsinline: 1, rel: 0, disablekb: 1,
         iv_load_policy: 3, fs: 0, cc_load_policy: 0, origin: location.origin,
@@ -387,6 +387,13 @@
 
   $("btn-settings").onclick = openSettings;
   $("btn-close").onclick = closeSettings;
+  // A one-time sign-in on Google's own page. The TV keeps it, so YouTube Premium applies to the videos here.
+  // Afterwards press Back (or reopen TV Mix) to come back.
+  $("btn-signin").onclick = () => {
+    rememberPosition();
+    location.href = "https://accounts.google.com/ServiceLogin?service=youtube&continue=" +
+      encodeURIComponent("https://www.youtube.com/signin?action_handle_signin=true&next=%2F");
+  };
   $("btn-save").onclick = () => {
     const err = (msg) => ($("settings-err").textContent = msg);
     const lines = $("videos-input").value.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -482,7 +489,7 @@
       const atEnd = !el.value.slice(el.selectionEnd).includes("\n");
       if ((e.keyCode === KEY.UP && !atStart) || (e.keyCode === KEY.DOWN && !atEnd)) return;
     }
-    const fields = [$("videos-input"), $("minutes-input"), $("btn-save"), $("btn-close")];
+    const fields = [$("videos-input"), $("minutes-input"), $("btn-save"), $("btn-close"), $("btn-signin")];
     const i = fields.indexOf(el);
     fields[Math.max(0, Math.min(fields.length - 1, i + (e.keyCode === KEY.DOWN ? 1 : -1)))].focus();
     e.preventDefault();
