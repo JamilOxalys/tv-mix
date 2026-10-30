@@ -426,7 +426,9 @@
   // Full screen hides the Samsung browser's bars. Browsers only allow it after a click or key press,
   // so the first press anywhere asks for it; the button is there if that didn't work.
   const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
-  const canFullscreen = !/; wv\)|AFT/.test(navigator.userAgent) && !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+  // Not needed inside the Samsung or Fire TV apps, which are already full screen.
+  const insideApp = window.self !== window.top || /; wv\)|AFT/.test(navigator.userAgent);
+  const canFullscreen = !insideApp && !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
   function goFullscreen() {
     if (!canFullscreen || fsElement()) return;
     const el = document.documentElement;
