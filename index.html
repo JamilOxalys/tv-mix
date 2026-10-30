@@ -403,7 +403,7 @@
   $("btn-settings").onclick = openSettings;
   $("btn-close").onclick = closeSettings;
   // A one-time sign-in on Google's own page. The TV keeps it, so YouTube Premium applies to the videos here.
-  // Afterwards press Back (or reopen TV Mix) to come back.
+  // Google then shows YouTube's home page; reopen TV Mix to come back (in a browser, press Back).
   // Inside the Samsung app TV Mix is in a frame, where Google won't show its sign-in page, so the app opens it instead.
   $("btn-signin").onclick = () => {
     rememberPosition();
