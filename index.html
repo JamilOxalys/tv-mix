@@ -113,6 +113,7 @@
         <input id="minutes-input" type="number" min="0.5" step="0.5">
       </div>
 
+      <label id="quality-info" style="margin:0"></label>
       <div class="err" id="settings-err"></div>
       <div class="row">
         <button id="btn-save" class="primary">Save</button>
@@ -189,6 +190,19 @@
   const MAX_COVER_MS = 12000;
   const QUALITY_ORDER = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
   const rank = (q) => QUALITY_ORDER.indexOf(q);
+  const QUALITY_NAMES = { hd2160: "4K (2160p)", highres: "above 4K", hd1440: "1440p", hd1080: "1080p", hd720: "720p", large: "480p", medium: "360p", small: "240p", tiny: "144p" };
+
+  // In Settings: the picture quality now playing, and the best this video offers.
+  function showQuality() {
+    let now = "", best = "";
+    try {
+      now = player.getPlaybackQuality();
+      best = player.getAvailableQualityLevels().filter((q) => q !== "auto").sort((a, b) => rank(b) - rank(a))[0] || "";
+    } catch (e) {}
+    $("quality-info").textContent = now && QUALITY_NAMES[now]
+      ? "Playing in " + QUALITY_NAMES[now] + (best && QUALITY_NAMES[best] ? " · best this video offers: " + QUALITY_NAMES[best] : "")
+      : "";
+  }
 
   // The video after `id` in the list (wraps round). If `id` isn't in the list, the first one.
   function nextAfter(id) {
@@ -380,6 +394,7 @@
     $("videos-input").value = videos.map((id) => "https://youtu.be/" + id).join("\n");
     $("minutes-input").value = minutesPerVideo;
     $("settings-err").textContent = "";
+    showQuality();
     $("settings").classList.add("open");
     $("videos-input").focus();
   }
