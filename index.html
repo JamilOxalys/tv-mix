@@ -50,7 +50,7 @@
      allows it), and fades away once the video is playing smoothly and sharply. */
   #cover {
     position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover;
-    background: #000; opacity: 1; transition: opacity .9s ease; pointer-events: none;
+    background: #000; opacity: 1; transition: opacity .5s ease; pointer-events: none;
   }
   #cover.off { opacity: 0; }
 
@@ -178,11 +178,15 @@
   let failedInARow = 0;
   const startedAt = Date.now();
 
-  // YouTube shows its own pause button for about 5 seconds whenever a video starts or jumps,
-  // so the cover stays up until the video has been playing for longer than that...
-  const SETTLE_MS = 6000;
-  // ...and, ideally, until YouTube has stepped up to full quality, but never longer than this.
-  const MAX_COVER_MS = 20000;
+  // YouTube shows its own pause button for about 5 seconds after a video starts moving,
+  // so the cover stays up until then...
+  const SETTLE_MS = 5000;
+  // ...and until the picture is sharp (1080p, or the video's best if lower). If YouTube stops stepping up
+  // before that (a slower connection), it reveals once the quality has held steady for a moment.
+  // Where a video has 4K, YouTube steps up to it on its own a few seconds after the reveal.
+  const REVEAL_QUALITY = "hd1080";
+  const STEADY_MS = 1500;
+  const MAX_COVER_MS = 12000;
   const QUALITY_ORDER = ["tiny", "small", "medium", "large", "hd720", "hd1080", "hd1440", "hd2160", "highres"];
   const rank = (q) => QUALITY_ORDER.indexOf(q);
 
@@ -196,18 +200,31 @@
   // Captions can still appear if the viewer's YouTube settings turn them on, so switch them off every time.
   function hideCaptions() { try { player.unloadModule("captions"); player.unloadModule("cc"); } catch {} }
 
-  // Put a still of `id` over the screen: one of YouTube's automatic frames from inside the video
-  // (not the uploader's thumbnail, which often has a title written on it). Resolves once it's showing.
+  // A still of each video: one of YouTube's automatic frames from inside it (not the uploader's
+  // thumbnail, which often has a title written on it). Fetched ahead, so the cover appears instantly.
+  const STILL_SIZES = ["maxres2", "sd2", "hq2"];
+  const stillUrl = (id, i = 0) => `https://i.ytimg.com/vi/${id}/${STILL_SIZES[i]}.jpg`;
+  const prefetched = {};
+  function prefetchStill(id) {
+    if (!id || prefetched[id]) return;
+    const img = new Image();
+    let i = 0;
+    img.onerror = () => { if (++i < STILL_SIZES.length) img.src = stillUrl(id, i); };
+    img.onload = () => { prefetched[id] = img.src; };
+    img.src = stillUrl(id);
+  }
+
+  // Put the still of `id` over the screen. Resolves once it's showing.
   function coverWith(id) {
     return new Promise((resolve) => {
       const img = $("cover");
-      const sizes = ["maxres2", "sd2", "hq2"];
       let tries = 0, done = false;
-      const finish = () => { if (done) return; done = true; img.classList.remove("off"); setTimeout(resolve, 950); };
+      const finish = () => { if (done) return; done = true; img.classList.remove("off"); setTimeout(resolve, 550); };
       img.onload = finish;
-      img.onerror = () => { if (++tries < sizes.length) img.src = `https://i.ytimg.com/vi/${id}/${sizes[tries]}.jpg`; else { img.removeAttribute("src"); finish(); } };
-      img.src = `https://i.ytimg.com/vi/${id}/${sizes[0]}.jpg`;
-      setTimeout(finish, 2000);
+      img.onerror = () => { if (++tries < STILL_SIZES.length) img.src = stillUrl(id, tries); else { img.removeAttribute("src"); finish(); } };
+      img.src = prefetched[id] || stillUrl(id);
+      if (img.complete && img.naturalWidth) finish();
+      setTimeout(finish, 1500);
     });
   }
 
@@ -215,18 +232,21 @@
   function whenSettled(id) {
     return new Promise((resolve) => {
       const began = Date.now();
-      let playingSince = 0;
+      let playingSince = 0, lastQuality = "", qualitySince = Date.now();
       (function check() {
         if (currentId !== id) return resolve(false);
         const playing = player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING;
         playingSince = playing ? (playingSince || Date.now()) : 0;
+        const quality = (player.getPlaybackQuality && player.getPlaybackQuality()) || "";
+        if (quality !== lastQuality) { lastQuality = quality; qualitySince = Date.now(); }
         const levels = (player.getAvailableQualityLevels && player.getAvailableQualityLevels()) || [];
         const best = levels.map(rank).filter((r) => r >= 0);
-        const target = Math.min(best.length ? Math.max(...best) : rank("hd1080"), rank(render4k ? "hd2160" : "hd1080"));
-        const sharp = rank(player.getPlaybackQuality && player.getPlaybackQuality()) >= target;
+        const target = Math.min(best.length ? Math.max(...best) : rank(REVEAL_QUALITY), rank(REVEAL_QUALITY));
+        const sharp = rank(quality) >= target;
+        const steady = Date.now() - qualitySince >= STEADY_MS;
         const settled = playingSince && Date.now() - playingSince >= SETTLE_MS;
-        if ((settled && sharp) || Date.now() - began > MAX_COVER_MS) return resolve(true);
-        setTimeout(check, 250);
+        if ((settled && (sharp || steady)) || Date.now() - began > MAX_COVER_MS) return resolve(true);
+        setTimeout(check, 200);
       })();
     });
   }
@@ -246,6 +266,7 @@
     $("cover").classList.add("off");
     switching = false;
     scheduleSwitch();
+    prefetchStill(nextAfter(id));
   }
 
   function nextVideo() {
